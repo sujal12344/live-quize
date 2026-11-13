@@ -1,6 +1,12 @@
 # IFM Developer Take-Home — Live Classroom Quiz
 **Candidate Submission Note**
 
+* **Live Production URL:** [https://live-quiz-server-ew7u.onrender.com/](https://live-quiz-server-ew7u.onrender.com/)
+* **GitHub Repository:** [https://github.com/sujal12344/live-quize](https://github.com/sujal12344/live-quize)
+* **Host / Projector View:** [https://live-quiz-server-ew7u.onrender.com/host](https://live-quiz-server-ew7u.onrender.com/host)
+* **Student Mobile Join:** [https://live-quiz-server-ew7u.onrender.com/join](https://live-quiz-server-ew7u.onrender.com/join)
+* **Teacher Visual Quiz Editor:** [https://live-quiz-server-ew7u.onrender.com/editor](https://live-quiz-server-ew7u.onrender.com/editor)
+
 ---
 
 ### 1. What Works
