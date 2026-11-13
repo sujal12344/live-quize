@@ -1,0 +1,102 @@
+{
+  "format": "acsom-live-quiz",
+  "version": 1,
+  "id": "simple-maths-quiz-basic-arithmetic",
+  "title": "Simple Maths Quiz – Basic Arithmetic",
+  "created": "2026-11-13",
+  "description": "10 beginner-level maths questions (addition, subtraction, and multiplication). Single-digit arithmetic, 4 options each, 20s per question.",
+  "timeLimitSec": 20,
+  "questions": [
+    {
+      "stem": "A student is practising basic addition.",
+      "lead": "What is 3 + 4?",
+      "options": ["5", "6", "7", "8"],
+      "answerIndex": 2,
+      "explain": "3 + 4 = 7. Option C is correct.",
+      "sourceUrl": "https://www.mathsisfun.com/numbers/addition.html",
+      "topic": ["Basic Mathematics", "Addition"]
+    },
+    {
+      "stem": "A student is practising basic subtraction.",
+      "lead": "What is 9 - 5?",
+      "options": ["2", "3", "4", "5"],
+      "answerIndex": 2,
+      "explain": "9 - 5 = 4. Option C is correct.",
+      "sourceUrl": "https://www.mathsisfun.com/numbers/subtraction.html",
+      "topic": ["Basic Mathematics", "Subtraction"]
+    },
+    {
+      "stem": "A student is practising basic addition.",
+      "lead": "What is 6 + 2?",
+      "options": ["7", "8", "9", "10"],
+      "answerIndex": 1,
+      "explain": "6 + 2 = 8. Option B is correct.",
+      "sourceUrl": "https://www.mathsisfun.com/numbers/addition.html",
+      "topic": ["Basic Mathematics", "Addition"]
+    },
+    {
+      "stem": "A student is practising basic subtraction.",
+      "lead": "What is 8 - 3?",
+      "options": ["4", "5", "6", "7"],
+      "answerIndex": 1,
+      "explain": "8 - 3 = 5. Option B is correct.",
+      "sourceUrl": "https://www.mathsisfun.com/numbers/subtraction.html",
+      "topic": ["Basic Mathematics", "Subtraction"]
+    },
+    {
+      "stem": "A student is practising basic addition.",
+      "lead": "What is 5 + 4?",
+      "options": ["7", "8", "9", "10"],
+      "answerIndex": 2,
+      "explain": "5 + 4 = 9. Option C is correct.",
+      "sourceUrl": "https://www.mathsisfun.com/numbers/addition.html",
+      "topic": ["Basic Mathematics", "Addition"]
+    },
+    {
+      "stem": "A student is practising basic subtraction.",
+      "lead": "What is 7 - 4?",
+      "options": ["2", "3", "4", "5"],
+      "answerIndex": 1,
+      "explain": "7 - 4 = 3. Option B is correct.",
+      "sourceUrl": "https://www.mathsisfun.com/numbers/subtraction.html",
+      "topic": ["Basic Mathematics", "Subtraction"]
+    },
+    {
+      "stem": "A student is practising basic multiplication.",
+      "lead": "What is 3 × 3?",
+      "options": ["6", "8", "9", "12"],
+      "answerIndex": 2,
+      "explain": "3 × 3 = 9. Option C is correct.",
+      "sourceUrl": "https://www.mathsisfun.com/multiplication.html",
+      "topic": ["Basic Mathematics", "Multiplication"]
+    },
+    {
+      "stem": "A student is practising basic subtraction.",
+      "lead": "What is 8 - 6?",
+      "options": ["1", "2", "3", "4"],
+      "answerIndex": 1,
+      "explain": "8 - 6 = 2. Option B is correct.",
+      "sourceUrl": "https://www.mathsisfun.com/numbers/subtraction.html",
+      "topic": ["Basic Mathematics", "Subtraction"]
+    },
+    {
+      "stem": "A student is practising basic addition.",
+      "lead": "What is 2 + 7?",
+      "options": ["8", "9", "10", "11"],
+      "answerIndex": 1,
+      "explain": "2 + 7 = 9. Option B is correct.",
+      "sourceUrl": "https://www.mathsisfun.com/numbers/addition.html",
+      "topic": ["Basic Mathematics", "Addition"]
+    },
+    {
+      "stem": "A student is practising basic multiplication.",
+      "lead": "What is 4 × 2?",
+      "options": ["6", "7", "8", "10"],
+      "answerIndex": 2,
+      "explain": "4 × 2 = 8. Option C is correct.",
+      "sourceUrl": "https://www.mathsisfun.com/multiplication.html",
+      "topic": ["Basic Mathematics", "Multiplication"]
+    }
+  ]
+}
+

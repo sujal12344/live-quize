@@ -1,0 +1,15 @@
+{
+  "watch": ["server"],
+  "ext": "js,json",
+  "ignore": [
+    "client/*",
+    "*.db*",
+    "*.db-wal",
+    "*.db-shm",
+    "sample-quizzes/*",
+    ".git/*",
+    "NOTE.md"
+  ],
+  "delay": 1000
+}
+
