@@ -469,6 +469,31 @@ select.input-field option {
   }
 }
 
+@media (max-width: 640px) {
+  .app-container {
+    padding: 10px 8px;
+    max-width: 100%;
+    min-height: 100vh;
+  }
+  .card {
+    padding: 18px 14px;
+    border-radius: 14px;
+    margin-bottom: 12px;
+  }
+  .btn-option {
+    padding: 14px 16px;
+    min-height: 56px;
+    font-size: 1.1rem;
+    margin-bottom: 10px;
+  }
+  .opt-letter {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+    margin-right: 12px;
+  }
+}
+
 .live-dot {
   width: 12px;
   height: 12px;

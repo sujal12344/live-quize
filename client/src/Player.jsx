@@ -5,8 +5,17 @@ const STORAGE_KEY = 'live_quiz_player';
 
 function loadSavedPlayer() {
   try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const fromQuery = urlParams.get('join')?.trim().toUpperCase();
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (fromQuery && parsed?.roomCode && fromQuery !== parsed.roomCode) {
+      // User tapped a link / scanned QR for a different room!
+      localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -157,13 +166,21 @@ export default function Player({ onExit }) {
     onExit();
   };
 
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  };
+
   // Rejoin loading state
   if (saved && !state) {
     return (
       <div className="card" style={{ textAlign: 'center', padding: '36px 20px' }}>
         <h2>Restoring Session...</h2>
         <p style={{ color: 'var(--text-muted)' }}>Reconnecting to Room {saved.roomCode}...</p>
-        {error && (
+        {error ? (
           <>
             <div className="banner banner-error">{error}</div>
             <button className="btn" onClick={attemptRejoin} disabled={busy}>
@@ -174,9 +191,17 @@ export default function Player({ onExit }) {
               style={{ marginTop: 12 }}
               onClick={leaveGame}
             >
-              Join Different Room
+              Enter New Room Code
             </button>
           </>
+        ) : (
+          <button
+            className="btn btn-secondary"
+            style={{ marginTop: 16 }}
+            onClick={leaveGame}
+          >
+            Cancel & Join Different Room
+          </button>
         )}
       </div>
     );
@@ -248,7 +273,7 @@ export default function Player({ onExit }) {
   return (
     <div>
       {/* Player Header */}
-      <div className="card" style={{ padding: '14px 18px', marginBottom: 14 }}>
+      <div className="card" style={{ padding: '12px 16px', marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <strong>{state.name}</strong>
@@ -256,9 +281,19 @@ export default function Player({ onExit }) {
               (Room {state.roomCode})
             </span>
           </div>
-          <span className="badge badge-primary" style={{ fontSize: '1rem', padding: '6px 14px' }}>
-            {state.score} pts
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              className="btn btn-secondary"
+              style={{ width: 'auto', padding: '6px 10px', fontSize: '0.85rem' }}
+              onClick={toggleFullscreen}
+              title="Toggle Fullscreen Mode"
+            >
+              ⛶
+            </button>
+            <span className="badge badge-primary" style={{ fontSize: '1rem', padding: '6px 14px' }}>
+              {state.score} pts
+            </span>
+          </div>
         </div>
         {error && (
           <div className="banner banner-error" style={{ marginTop: 10, marginBottom: 0 }}>
@@ -353,6 +388,8 @@ export default function Player({ onExit }) {
             <h2 style={{ margin: 0 }}>
               {state.reveal.isCorrect
                 ? `🎉 Correct! +${state.reveal.points || state.question.points || 100} pts`
+                : state.reveal.closedEarly
+                ? '🛑 Question Closed by Host'
                 : state.selectedOption === null
                 ? "⏰ Time's Up!"
                 : '❌ Incorrect'}

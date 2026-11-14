@@ -277,16 +277,21 @@ export async function recordAnswer(room, playerToken, optionIndex) {
   }
 
   const isCorrect = optionIndex === curQ.correct_index;
-  answersMap.set(player.id, { optionIndex, isCorrect, answeredAt: Date.now() });
+  const startTime = questionStartTimes.get(room.code) || Date.now();
+  const responseTimeMs = Math.max(50, Date.now() - startTime);
+  const responseTimeSec = (responseTimeMs / 1000).toFixed(1);
+
+  answersMap.set(player.id, { optionIndex, isCorrect, answeredAt: Date.now(), responseTimeMs });
+  player.lastResponseTimeMs = responseTimeMs;
+  if (!isChange) {
+    player.totalResponseTimeMs = (player.totalResponseTimeMs || 0) + responseTimeMs;
+  }
 
   // Non-blocking asynchronous DB write
   insertAnswerRecord(room.code, player.id, room.question_index, optionIndex, isCorrect).catch(console.error);
 
   const optionLetter = String.fromCharCode(65 + optionIndex);
   const pickedText = curQ.options[optionIndex];
-
-  const startTime = questionStartTimes.get(room.code) || Date.now();
-  const responseTimeSec = ((Date.now() - startTime) / 1000).toFixed(1);
 
   if (!roomEventsMap.has(room.code)) roomEventsMap.set(room.code, []);
   const events = roomEventsMap.get(room.code);
@@ -337,7 +342,7 @@ export async function addTimeToCurrentQuestion(room, seconds = 15) {
   return { newEndsAt, remainingMs };
 }
 
-export async function closeCurrentQuestion(room) {
+export async function closeCurrentQuestion(room, closedEarly = false) {
   const t0 = Date.now();
   const currentRoom = await getRoom(room.code);
   if (!currentRoom || currentRoom.phase !== 'QUESTION') return null;
@@ -351,6 +356,7 @@ export async function closeCurrentQuestion(room) {
   const qPoints = curQ.points || 100;
 
   currentRoom.phase = 'REVEALED';
+  currentRoom.closed_early = Boolean(closedEarly);
   roomsCache.set(currentRoom.code, currentRoom);
 
   // Award custom points in memory immediately
@@ -375,7 +381,9 @@ export async function closeCurrentQuestion(room) {
   const correctText = curQ.options[curQ.correct_index];
 
   const leaders = playersMap
-    ? Array.from(playersMap.values()).sort((a, b) => b.score - a.score)
+    ? Array.from(playersMap.values()).sort(
+        (a, b) => b.score - a.score || (a.totalResponseTimeMs || 999999) - (b.totalResponseTimeMs || 999999)
+      )
     : await getLeaderboardFromDb(currentRoom.code);
 
   console.log(`\n--------------------------------------------------`);
@@ -390,6 +398,7 @@ export async function closeCurrentQuestion(room) {
     points: qPoints,
     sourceUrl: curQ.source_url,
     explanation: curQ.explain_text,
+    closedEarly: Boolean(closedEarly),
   };
 }
 
@@ -428,14 +437,18 @@ export async function getHostState(room) {
   const answeredCount = answersMap ? answersMap.size : (await getAnswersCount(currentRoom.code, currentRoom.question_index));
 
   let liveOptionCounts = [];
-  if (currentRoom.phase === 'QUESTION' && currentRoom.question_index >= 0) {
+  let liveOptionStudentNames = [];
+  if ((currentRoom.phase === 'QUESTION' || currentRoom.phase === 'REVEALED') && currentRoom.question_index >= 0) {
     const curQ = currentRoom.quiz.questions[currentRoom.question_index];
     const optsCount = curQ?.options?.length || 4;
     liveOptionCounts = new Array(optsCount).fill(0);
+    liveOptionStudentNames = Array.from({ length: optsCount }, () => []);
     if (answersMap) {
-      for (const ans of answersMap.values()) {
+      for (const [playerId, ans] of answersMap.entries()) {
         if (ans.optionIndex >= 0 && ans.optionIndex < optsCount) {
           liveOptionCounts[ans.optionIndex] += 1;
+          const pName = playersMap?.get(playerId)?.name || 'Student';
+          liveOptionStudentNames[ans.optionIndex].push(pName);
         }
       }
     }
@@ -456,6 +469,7 @@ export async function getHostState(room) {
       points: q.points || 100,
       sourceUrl: q.source_url,
       explanation: q.explain_text,
+      closedEarly: Boolean(currentRoom.closed_early),
     };
   }
 
@@ -463,8 +477,13 @@ export async function getHostState(room) {
   if (showLeaderboard) {
     if (playersMap) {
       leaderboard = Array.from(playersMap.values())
-        .map((p) => ({ name: p.name, score: p.score || 0 }))
-        .sort((a, b) => b.score - a.score);
+        .map((p) => ({
+          name: p.name,
+          score: p.score || 0,
+          totalTimeMs: p.totalResponseTimeMs || 0,
+          lastResponseSec: p.lastResponseTimeMs ? (p.lastResponseTimeMs / 1000).toFixed(1) : null,
+        }))
+        .sort((a, b) => b.score - a.score || a.totalTimeMs - b.totalTimeMs);
     } else {
       leaderboard = await getLeaderboardFromDb(currentRoom.code);
     }
@@ -479,6 +498,7 @@ export async function getHostState(room) {
     players,
     question: getPublicQuestion(currentRoom),
     liveOptionCounts,
+    liveOptionStudentNames,
     liveEvents,
     questionBreakdown,
     reveal,
@@ -511,6 +531,7 @@ export async function getPlayerState(room, player) {
       sourceUrl: q.source_url,
       explanation: q.explain_text,
       isCorrect: selectedOption === q.correct_index,
+      closedEarly: Boolean(currentRoom.closed_early),
     };
   }
 

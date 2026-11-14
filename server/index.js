@@ -202,7 +202,7 @@ io.on('connection', (socket) => {
       return ack?.({ ok: false, error: 'Cannot close question.' });
     }
     clearRoomTimer(room.code);
-    await closeCurrentQuestion(room);
+    await closeCurrentQuestion(room, true);
     await broadcastRoomState(room.code);
     ack?.({ ok: true });
   });

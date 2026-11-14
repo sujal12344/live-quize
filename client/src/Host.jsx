@@ -354,8 +354,8 @@ export default function Host({ onExit, onOpenEditor, initialQuizId }) {
                     <span style={{ fontSize: '1.25rem', fontWeight: 600 }}>{opt}</span>
                   </div>
                   {voteCount > 0 && (
-                    <span className="badge badge-primary" style={{ fontSize: '0.85rem' }}>
-                      {voteCount} {voteCount === 1 ? 'student' : 'students'}
+                    <span className="badge badge-primary" style={{ fontSize: '0.85rem', maxWidth: '60%', textAlign: 'right', whiteSpace: 'normal', height: 'auto', lineHeight: 1.3, padding: '6px 12px' }}>
+                      👤 {state.liveOptionStudentNames?.[i]?.join(', ')} ({voteCount})
                     </span>
                   )}
                 </div>
@@ -469,6 +469,11 @@ export default function Host({ onExit, onOpenEditor, initialQuizId }) {
                 >
                   <span className="opt-letter">{String.fromCharCode(65 + i)}</span>
                   <span style={{ flex: 1, fontSize: '1.15rem' }}>{opt}</span>
+                  {state.liveOptionStudentNames?.[i]?.length > 0 && (
+                    <span className="badge" style={{ fontSize: '0.85rem', marginRight: 10, background: 'var(--surface-raised)' }}>
+                      👤 {state.liveOptionStudentNames[i].join(', ')}
+                    </span>
+                  )}
                   {isCorrect && <span style={{ fontWeight: 700 }}>✔ Correct Answer</span>}
                 </div>
               );
@@ -493,12 +498,19 @@ export default function Host({ onExit, onOpenEditor, initialQuizId }) {
           <h3 style={{ margin: '24px 0 12px 0' }}>Classroom Leaderboard</h3>
           <ul className="leaderboard-list">
             {state.leaderboard.map((item, idx) => (
-              <li key={item.id} className={`leaderboard-item ${idx === 0 ? 'rank-1' : ''}`}>
+              <li key={item.id || idx} className={`leaderboard-item ${idx === 0 ? 'rank-1' : ''}`}>
                 <span>
                   {idx === 0 ? '🥇 ' : idx === 1 ? '🥈 ' : idx === 2 ? '🥉 ' : `#${idx + 1} `}
                   <strong>{item.name}</strong>
                 </span>
-                <span className="badge badge-primary">{item.score} pts</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {item.lastResponseSec && (
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      ⚡ {item.lastResponseSec}s
+                    </span>
+                  )}
+                  <span className="badge badge-primary">{item.score} pts</span>
+                </div>
               </li>
             ))}
           </ul>
