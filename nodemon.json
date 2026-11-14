@@ -6,10 +6,8 @@
     "*.db*",
     "*.db-wal",
     "*.db-shm",
-    "sample-quizzes/*",
     ".git/*",
     "NOTE.md"
   ],
   "delay": 1000
 }
-

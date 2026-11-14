@@ -57,7 +57,11 @@ async function generateRoomCode() {
 
 export async function createRoom(quizId = 'simple-maths-quiz-basic-arithmetic') {
   const t0 = Date.now();
-  const quiz = (await getQuiz(quizId)) || (await getQuiz('simple-maths-quiz-basic-arithmetic'));
+  let quiz = (await getQuiz(quizId)) || (await getQuiz('simple-maths-quiz-basic-arithmetic'));
+  if (!quiz || !quiz.questions || quiz.questions.length === 0) {
+    await seedDefaultQuizIfNeeded();
+    quiz = await getQuiz('simple-maths-quiz-basic-arithmetic');
+  }
   if (!quiz) throw new Error('Quiz not found in database');
 
   const roomCode = await generateRoomCode();

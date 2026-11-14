@@ -156,11 +156,12 @@ export async function seedDefaultQuizIfNeeded() {
 
   if (existingCount >= 10) return;
 
-  const defaultQuizPath = path.resolve(
-    __dirname,
-    '../sample-quizzes/sample-maths-quiz-basic-arithmetic.quiz.json'
-  );
-  if (!fs.existsSync(defaultQuizPath)) return;
+  const candidatePaths = [
+    path.resolve(__dirname, 'sample-maths-quiz-basic-arithmetic.quiz.json'),
+    path.resolve(__dirname, '../sample-quizzes/sample-maths-quiz-basic-arithmetic.quiz.json'),
+  ];
+  const defaultQuizPath = candidatePaths.find((p) => fs.existsSync(p));
+  if (!defaultQuizPath) return;
 
   const raw = fs.readFileSync(defaultQuizPath, 'utf-8');
   const parsed = JSON.parse(raw);
