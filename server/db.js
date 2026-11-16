@@ -6,535 +6,223 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
-dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 const { Pool } = pg;
 const databaseUrl = process.env.DATABASE_URL;
-
 export const isPostgres = Boolean(databaseUrl);
+
 let pool = null;
+let sqliteDb = null;
 
 if (isPostgres) {
   pool = new Pool({
     connectionString: databaseUrl,
     ssl: { rejectUnauthorized: false },
   });
-  console.log('[DB] Connecting to Neon Cloud PostgreSQL database...');
+  console.log('[DB] Connected to Neon Cloud PostgreSQL.');
 } else {
-  console.log('[DB] Using local SQLite database (no DATABASE_URL set).');
-}
-
-// Fallback SQLite instance if no DATABASE_URL
-let sqliteDb = null;
-if (!isPostgres) {
   const { DatabaseSync } = await import('node:sqlite');
-  const dbPath = path.resolve(__dirname, 'quiz.db');
-  sqliteDb = new DatabaseSync(dbPath);
+  sqliteDb = new DatabaseSync(path.resolve(__dirname, 'quiz.db'));
   sqliteDb.exec('PRAGMA journal_mode = WAL;');
+  console.log('[DB] Using local SQLite database (server/quiz.db).');
 }
 
-export async function initDbSchema() {
+// Unified query runner: auto-maps '?' to '$1, $2...' for PostgreSQL
+export async function query(sql, params = []) {
   if (isPostgres) {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS quizzes (
-        id VARCHAR(255) PRIMARY KEY,
-        title TEXT NOT NULL,
-        description TEXT,
-        time_limit_sec INT DEFAULT 20,
-        created_at BIGINT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS questions (
-        id SERIAL PRIMARY KEY,
-        quiz_id VARCHAR(255) NOT NULL,
-        q_order INT NOT NULL,
-        stem TEXT,
-        prompt TEXT NOT NULL,
-        options_json TEXT NOT NULL,
-        correct_index INT NOT NULL,
-        points INT DEFAULT 100,
-        explain_text TEXT,
-        source_url TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS rooms (
-        code VARCHAR(32) PRIMARY KEY,
-        host_token VARCHAR(255) NOT NULL,
-        quiz_id VARCHAR(255) NOT NULL,
-        phase VARCHAR(32) NOT NULL,
-        question_index INT DEFAULT -1,
-        ends_at BIGINT,
-        created_at BIGINT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS players (
-        id VARCHAR(255) PRIMARY KEY,
-        room_code VARCHAR(32) NOT NULL,
-        token VARCHAR(255) UNIQUE NOT NULL,
-        name VARCHAR(255) NOT NULL,
-        score INT DEFAULT 0,
-        joined_at BIGINT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS answers (
-        room_code VARCHAR(32) NOT NULL,
-        player_id VARCHAR(255) NOT NULL,
-        question_index INT NOT NULL,
-        option_index INT NOT NULL,
-        is_correct INT NOT NULL,
-        answered_at BIGINT NOT NULL,
-        PRIMARY KEY (room_code, player_id, question_index)
-      );
-    `);
-  } else {
-    sqliteDb.exec(`
-      CREATE TABLE IF NOT EXISTS quizzes (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        description TEXT,
-        time_limit_sec INTEGER DEFAULT 20,
-        created_at INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS questions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        quiz_id TEXT NOT NULL,
-        q_order INTEGER NOT NULL,
-        stem TEXT,
-        prompt TEXT NOT NULL,
-        options_json TEXT NOT NULL,
-        correct_index INTEGER NOT NULL,
-        points INTEGER DEFAULT 100,
-        explain_text TEXT,
-        source_url TEXT
-      );
-      CREATE TABLE IF NOT EXISTS rooms (
-        code TEXT PRIMARY KEY,
-        host_token TEXT NOT NULL,
-        quiz_id TEXT NOT NULL,
-        phase TEXT NOT NULL,
-        question_index INTEGER DEFAULT -1,
-        ends_at INTEGER,
-        created_at INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS players (
-        id TEXT PRIMARY KEY,
-        room_code TEXT NOT NULL,
-        token TEXT NOT NULL UNIQUE,
-        name TEXT NOT NULL,
-        score INTEGER DEFAULT 0,
-        joined_at INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS answers (
-        room_code TEXT NOT NULL,
-        player_id TEXT NOT NULL,
-        question_index INTEGER NOT NULL,
-        option_index INTEGER NOT NULL,
-        is_correct INTEGER NOT NULL,
-        answered_at INTEGER NOT NULL,
-        PRIMARY KEY (room_code, player_id, question_index)
-      );
-    `);
+    let idx = 1;
+    const pgSql = sql.replace(/\?/g, () => `$${idx++}`);
+    const res = await pool.query(pgSql, params);
+    return res.rows;
   }
+  const stmt = sqliteDb.prepare(sql);
+  return /^SELECT/i.test(sql.trim()) ? stmt.all(...params) : stmt.run(...params);
 }
 
+export async function queryOne(sql, params = []) {
+  const rows = await query(sql, params);
+  return rows[0] || null;
+}
+
+// Database Schema Initialization
+export async function initDbSchema() {
+  const autoId = isPostgres ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY AUTOINCREMENT';
+  await query(`
+    CREATE TABLE IF NOT EXISTS quizzes (
+      id VARCHAR(255) PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      time_limit_sec INT DEFAULT 20,
+      created_at BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS questions (
+      id ${autoId},
+      quiz_id VARCHAR(255) NOT NULL,
+      q_order INT NOT NULL,
+      stem TEXT,
+      prompt TEXT NOT NULL,
+      options_json TEXT NOT NULL,
+      correct_index INT NOT NULL,
+      points INT DEFAULT 100,
+      explain_text TEXT,
+      source_url TEXT
+    );
+    CREATE TABLE IF NOT EXISTS rooms (
+      code VARCHAR(32) PRIMARY KEY,
+      host_token VARCHAR(255) NOT NULL,
+      quiz_id VARCHAR(255) NOT NULL,
+      phase VARCHAR(32) NOT NULL,
+      question_index INT DEFAULT -1,
+      ends_at BIGINT,
+      created_at BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS players (
+      id VARCHAR(255) PRIMARY KEY,
+      room_code VARCHAR(32) NOT NULL,
+      token VARCHAR(255) UNIQUE NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      score INT DEFAULT 0,
+      joined_at BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS answers (
+      room_code VARCHAR(32) NOT NULL,
+      player_id VARCHAR(255) NOT NULL,
+      question_index INT NOT NULL,
+      option_index INT NOT NULL,
+      is_correct INT NOT NULL,
+      answered_at BIGINT NOT NULL,
+      PRIMARY KEY (room_code, player_id, question_index)
+    );
+  `);
+}
+
+// Seed default 10-question verified quiz
 export async function seedDefaultQuizIfNeeded() {
   await initDbSchema();
+  const existing = await queryOne('SELECT COUNT(*) as count FROM questions WHERE quiz_id = ?', ['simple-maths-quiz-basic-arithmetic']);
+  if (Number(existing?.count || 0) >= 10) return;
 
-  let existingCount = 0;
-  if (isPostgres) {
-    const res = await pool.query(
-      'SELECT COUNT(*) as count FROM questions WHERE quiz_id = $1',
-      ['simple-maths-quiz-basic-arithmetic']
-    );
-    existingCount = Number(res.rows[0]?.count || 0);
-  } else {
-    const row = sqliteDb
-      .prepare('SELECT COUNT(*) as count FROM questions WHERE quiz_id = ?')
-      .get('simple-maths-quiz-basic-arithmetic');
-    existingCount = Number(row?.count || 0);
-  }
+  const quizPath = path.resolve(__dirname, 'sample-maths.quiz.json');
+  if (!fs.existsSync(quizPath)) return;
 
-  if (existingCount >= 10) return;
-
-  const candidatePaths = [
-    path.resolve(__dirname, 'sample-maths.quiz.json')
-  ];
-  const defaultQuizPath = candidatePaths.find((p) => fs.existsSync(p));
-  if (!defaultQuizPath) return;
-
-  const raw = fs.readFileSync(defaultQuizPath, 'utf-8');
-  const parsed = JSON.parse(raw);
-  await saveQuizToDatabase(parsed);
-  console.log(`[SEED] Seeded 10 verified questions into ${isPostgres ? 'Neon PostgreSQL' : 'SQLite'}!`);
+  const data = JSON.parse(fs.readFileSync(quizPath, 'utf-8'));
+  await saveQuizToDatabase(data);
+  console.log(`[SEED] Seeded 10 verified questions into ${isPostgres ? 'Neon' : 'SQLite'}.`);
 }
 
-export async function saveQuizToDatabase(quizData) {
-  const quizId = quizData.id || `quiz-${Date.now()}`;
-  const title = quizData.title || 'Untitled Quiz';
-  const description = quizData.description || '';
-  const timeLimit = Number(quizData.timeLimitSec) || 20;
+// Quiz & Question Queries
+export async function saveQuizToDatabase(data) {
+  const quizId = data.id || `quiz-${Date.now()}`;
+  const title = data.title || 'Untitled Quiz';
+  const desc = data.description || '';
+  const timeLimit = Number(data.timeLimitSec) || 20;
 
-  if (isPostgres) {
-    await pool.query(
-      `INSERT INTO quizzes (id, title, description, time_limit_sec, created_at)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, description = EXCLUDED.description, time_limit_sec = EXCLUDED.time_limit_sec`,
-      [quizId, title, description, timeLimit, Date.now()]
+  await query(
+    `INSERT INTO quizzes (id, title, description, time_limit_sec, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, description = EXCLUDED.description, time_limit_sec = EXCLUDED.time_limit_sec`,
+    [quizId, title, desc, timeLimit, Date.now()]
+  );
+  await query('DELETE FROM questions WHERE quiz_id = ?', [quizId]);
+
+  const list = Array.isArray(data.questions) ? data.questions : [];
+  for (let i = 0; i < list.length; i++) {
+    const q = list[i];
+    const opts = Array.isArray(q.options) ? q.options : ['A', 'B', 'C', 'D'];
+    let correct = Number.isInteger(q.correctIndex) ? q.correctIndex : Number.isInteger(q.answerIndex) ? q.answerIndex : 0;
+    await query(
+      `INSERT INTO questions (quiz_id, q_order, stem, prompt, options_json, correct_index, points, explain_text, source_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [quizId, i, q.stem || '', q.lead || q.prompt || `Q${i + 1}`, JSON.stringify(opts), correct, Number(q.points) || 100, q.explain || '', q.sourceUrl || '']
     );
-    await pool.query('DELETE FROM questions WHERE quiz_id = $1', [quizId]);
-  } else {
-    sqliteDb.prepare(`
-      INSERT OR REPLACE INTO quizzes (id, title, description, time_limit_sec, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(quizId, title, description, timeLimit, Date.now());
-    sqliteDb.prepare('DELETE FROM questions WHERE quiz_id = ?').run(quizId);
   }
-
-  const list = Array.isArray(quizData.questions) ? quizData.questions : [];
-  for (let idx = 0; idx < list.length; idx += 1) {
-    const q = list[idx];
-    const prompt = q.lead || q.prompt || `Question ${idx + 1}`;
-    const stem = q.stem || '';
-    const options = Array.isArray(q.options) ? q.options : ['A', 'B', 'C', 'D'];
-    const points = Number.isInteger(q.points) ? q.points : 100;
-
-    let correct = 0;
-    if (Number.isInteger(q.answerIndex) && q.answerIndex >= 0 && q.answerIndex < options.length) {
-      correct = q.answerIndex;
-    } else if (Number.isInteger(q.correctIndex) && q.correctIndex >= 0 && q.correctIndex < options.length) {
-      correct = q.correctIndex;
-    } else if (typeof q.answer === 'string' && q.answer.trim()) {
-      const letterIdx = q.answer.trim().toUpperCase().charCodeAt(0) - 65;
-      if (letterIdx >= 0 && letterIdx < options.length) correct = letterIdx;
-    } else if (typeof q.explain === 'string') {
-      const m = q.explain.match(/option\s+([A-E])/i);
-      if (m) {
-        const letterIdx = m[1].toUpperCase().charCodeAt(0) - 65;
-        if (letterIdx >= 0 && letterIdx < options.length) correct = letterIdx;
-      }
-    }
-
-    if (isPostgres) {
-      await pool.query(
-        `INSERT INTO questions (quiz_id, q_order, stem, prompt, options_json, correct_index, points, explain_text, source_url)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [quizId, idx, stem, prompt, JSON.stringify(options), correct, points, q.explain || '', q.sourceUrl || '']
-      );
-    } else {
-      sqliteDb.prepare(`
-        INSERT INTO questions (quiz_id, q_order, stem, prompt, options_json, correct_index, points, explain_text, source_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(quizId, idx, stem, prompt, JSON.stringify(options), correct, points, q.explain || '', q.sourceUrl || '');
-    }
-  }
-
-  return await getQuiz(quizId);
+  return getQuiz(quizId);
 }
 
 export async function getQuiz(quizId) {
-  if (isPostgres) {
-    const qRes = await pool.query('SELECT * FROM quizzes WHERE id = $1', [quizId]);
-    if (qRes.rows.length === 0) return null;
-    const quiz = qRes.rows[0];
-    const qsRes = await pool.query(
-      'SELECT * FROM questions WHERE quiz_id = $1 ORDER BY q_order ASC',
-      [quizId]
-    );
-    const questions = qsRes.rows.map((q) => ({
-      ...q,
-      options: typeof q.options_json === 'string' ? JSON.parse(q.options_json) : q.options_json,
-    }));
-    return { ...quiz, questions };
-  } else {
-    const quiz = sqliteDb.prepare('SELECT * FROM quizzes WHERE id = ?').get(quizId);
-    if (!quiz) return null;
-    const questions = sqliteDb
-      .prepare('SELECT * FROM questions WHERE quiz_id = ? ORDER BY q_order ASC')
-      .all(quizId)
-      .map((q) => ({
-        ...q,
-        options: JSON.parse(q.options_json),
-      }));
-    return { ...quiz, questions };
-  }
+  const quiz = await queryOne('SELECT * FROM quizzes WHERE id = ?', [quizId]);
+  if (!quiz) return null;
+  const rows = await query('SELECT * FROM questions WHERE quiz_id = ? ORDER BY q_order ASC', [quizId]);
+  const questions = rows.map((q) => ({
+    ...q,
+    options: typeof q.options_json === 'string' ? JSON.parse(q.options_json) : q.options_json,
+  }));
+  return { ...quiz, questions };
 }
 
-export async function listQuizzes() {
-  if (isPostgres) {
-    const res = await pool.query(
-      'SELECT id, title, description, time_limit_sec FROM quizzes ORDER BY created_at DESC'
-    );
-    return res.rows;
-  } else {
-    return sqliteDb
-      .prepare('SELECT id, title, description, time_limit_sec FROM quizzes ORDER BY created_at DESC')
-      .all();
-  }
-}
+export const listQuizzes = () => query('SELECT id, title, description, time_limit_sec FROM quizzes ORDER BY created_at DESC');
 
-// Room & gameplay queries
-export async function createRoomRecord(roomCode, hostToken, quizId) {
-  if (isPostgres) {
-    await pool.query(
-      `INSERT INTO rooms (code, host_token, quiz_id, phase, question_index, ends_at, created_at)
-       VALUES ($1, $2, $3, 'LOBBY', -1, NULL, $4)`,
-      [roomCode, hostToken, quizId, Date.now()]
-    );
-  } else {
-    sqliteDb.prepare(`
-      INSERT INTO rooms (code, host_token, quiz_id, phase, question_index, ends_at, created_at)
-      VALUES (?, ?, ?, 'LOBBY', -1, NULL, ?)
-    `).run(roomCode, hostToken, quizId, Date.now());
-  }
-}
+// Room Queries
+export const createRoomRecord = (code, hostToken, quizId) =>
+  query('INSERT INTO rooms (code, host_token, quiz_id, phase, question_index, ends_at, created_at) VALUES (?, ?, ?, ?, -1, NULL, ?)', [code, hostToken, quizId, 'LOBBY', Date.now()]);
 
-export async function getRoomRecord(roomCode) {
-  if (typeof roomCode !== 'string') return null;
-  const clean = roomCode.trim().toUpperCase();
-  if (isPostgres) {
-    const res = await pool.query('SELECT * FROM rooms WHERE code = $1', [clean]);
-    return res.rows[0] || null;
-  } else {
-    return sqliteDb.prepare('SELECT * FROM rooms WHERE code = ?').get(clean) || null;
-  }
-}
+export const getRoomRecord = (code) =>
+  queryOne('SELECT * FROM rooms WHERE code = ?', [code?.trim().toUpperCase()]);
 
-export async function updateRoomRecord(roomCode, phase, questionIndex, endsAt) {
-  if (isPostgres) {
-    await pool.query(
-      'UPDATE rooms SET phase = $1, question_index = $2, ends_at = $3 WHERE code = $4',
-      [phase, questionIndex, endsAt, roomCode]
-    );
-  } else {
-    sqliteDb.prepare(
-      'UPDATE rooms SET phase = ?, question_index = ?, ends_at = ? WHERE code = ?'
-    ).run(phase, questionIndex, endsAt, roomCode);
-  }
-}
+export const updateRoomRecord = (code, phase, qIndex, endsAt) =>
+  query('UPDATE rooms SET phase = ?, question_index = ?, ends_at = ? WHERE code = ?', [phase, qIndex, endsAt, code]);
 
-export async function addPlayerRecord(id, roomCode, token, name) {
-  if (isPostgres) {
-    await pool.query(
-      `INSERT INTO players (id, room_code, token, name, score, joined_at)
-       VALUES ($1, $2, $3, $4, 0, $5)`,
-      [id, roomCode, token, name, Date.now()]
-    );
-  } else {
-    sqliteDb.prepare(`
-      INSERT INTO players (id, room_code, token, name, score, joined_at)
-      VALUES (?, ?, ?, ?, 0, ?)
-    `).run(id, roomCode, token, name, Date.now());
-  }
-}
+// Player Queries
+export const addPlayerRecord = (id, roomCode, token, name) =>
+  query('INSERT INTO players (id, room_code, token, name, score, joined_at) VALUES (?, ?, ?, ?, 0, ?)', [id, roomCode, token, name, Date.now()]);
 
-export async function getPlayerByTokenRecord(roomCode, token) {
-  if (isPostgres) {
-    const res = await pool.query(
-      'SELECT * FROM players WHERE room_code = $1 AND token = $2',
-      [roomCode, token]
-    );
-    return res.rows[0] || null;
-  } else {
-    return (
-      sqliteDb
-        .prepare('SELECT * FROM players WHERE room_code = ? AND token = ?')
-        .get(roomCode, token) || null
-    );
-  }
-}
+export const getPlayerByTokenRecord = (roomCode, token) =>
+  queryOne('SELECT * FROM players WHERE room_code = ? AND token = ?', [roomCode, token]);
 
-export async function getPlayerByIdRecord(id) {
-  if (isPostgres) {
-    const res = await pool.query('SELECT * FROM players WHERE id = $1', [id]);
-    return res.rows[0] || null;
-  } else {
-    return sqliteDb.prepare('SELECT * FROM players WHERE id = ?').get(id) || null;
-  }
-}
+export const getPlayerByIdRecord = (id) =>
+  queryOne('SELECT * FROM players WHERE id = ?', [id]);
 
-export async function getPlayersCount(roomCode) {
-  if (isPostgres) {
-    const res = await pool.query(
-      'SELECT COUNT(*) as count FROM players WHERE room_code = $1',
-      [roomCode]
-    );
-    return Number(res.rows[0]?.count || 0);
-  } else {
-    const row = sqliteDb
-      .prepare('SELECT COUNT(*) as count FROM players WHERE room_code = ?')
-      .get(roomCode);
-    return Number(row?.count || 0);
-  }
-}
+export const getPlayersCount = async (roomCode) =>
+  Number((await queryOne('SELECT COUNT(*) as count FROM players WHERE room_code = ?', [roomCode]))?.count || 0);
 
-export async function getPlayerNames(roomCode) {
-  if (isPostgres) {
-    const res = await pool.query(
-      'SELECT name FROM players WHERE room_code = $1 ORDER BY joined_at ASC',
-      [roomCode]
-    );
-    return res.rows.map((r) => r.name);
-  } else {
-    return sqliteDb
-      .prepare('SELECT name FROM players WHERE room_code = ? ORDER BY joined_at ASC')
-      .all(roomCode)
-      .map((r) => r.name);
-  }
-}
+export const getPlayerNames = async (roomCode) =>
+  (await query('SELECT name FROM players WHERE room_code = ? ORDER BY joined_at ASC', [roomCode])).map((r) => r.name);
 
-export async function getAnswersCount(roomCode, questionIndex) {
-  if (isPostgres) {
-    const res = await pool.query(
-      'SELECT COUNT(*) as count FROM answers WHERE room_code = $1 AND question_index = $2',
-      [roomCode, questionIndex]
-    );
-    return Number(res.rows[0]?.count || 0);
-  } else {
-    const row = sqliteDb
-      .prepare('SELECT COUNT(*) as count FROM answers WHERE room_code = ? AND question_index = ?')
-      .get(roomCode, questionIndex);
-    return Number(row?.count || 0);
-  }
-}
+// Answer Queries
+export const insertAnswerRecord = (roomCode, playerId, qIndex, optionIndex, isCorrect) =>
+  query(
+    `INSERT INTO answers (room_code, player_id, question_index, option_index, is_correct, answered_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT (room_code, player_id, question_index) DO UPDATE
+     SET option_index = EXCLUDED.option_index, is_correct = EXCLUDED.is_correct, answered_at = EXCLUDED.answered_at`,
+    [roomCode, playerId, qIndex, optionIndex, isCorrect ? 1 : 0, Date.now()]
+  );
 
-export async function getPlayerAnswer(roomCode, playerId, questionIndex) {
-  if (isPostgres) {
-    const res = await pool.query(
-      'SELECT option_index FROM answers WHERE room_code = $1 AND player_id = $2 AND question_index = $3',
-      [roomCode, playerId, questionIndex]
-    );
-    return res.rows[0]?.option_index ?? null;
-  } else {
-    const row = sqliteDb
-      .prepare(
-        'SELECT option_index FROM answers WHERE room_code = ? AND player_id = ? AND question_index = ?'
-      )
-      .get(roomCode, playerId, questionIndex);
-    return row?.option_index ?? null;
-  }
-}
+export const getAnswersCount = async (roomCode, qIndex) =>
+  Number((await queryOne('SELECT COUNT(*) as count FROM answers WHERE room_code = ? AND question_index = ?', [roomCode, qIndex]))?.count || 0);
 
-export async function insertAnswerRecord(roomCode, playerId, questionIndex, optionIndex, isCorrect) {
-  if (isPostgres) {
-    await pool.query(
-      `INSERT INTO answers (room_code, player_id, question_index, option_index, is_correct, answered_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (room_code, player_id, question_index) DO UPDATE
-       SET option_index = EXCLUDED.option_index, is_correct = EXCLUDED.is_correct, answered_at = EXCLUDED.answered_at`,
-      [roomCode, playerId, questionIndex, optionIndex, isCorrect ? 1 : 0, Date.now()]
-    );
-  } else {
-    sqliteDb.prepare(`
-      INSERT INTO answers (room_code, player_id, question_index, option_index, is_correct, answered_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT (room_code, player_id, question_index) DO UPDATE
-      SET option_index = excluded.option_index, is_correct = excluded.is_correct, answered_at = excluded.answered_at
-    `).run(roomCode, playerId, questionIndex, optionIndex, isCorrect ? 1 : 0, Date.now());
-  }
-}
+export const getPlayerAnswer = async (roomCode, playerId, qIndex) =>
+  (await queryOne('SELECT option_index FROM answers WHERE room_code = ? AND player_id = ? AND question_index = ?', [roomCode, playerId, qIndex]))?.option_index ?? null;
 
-export async function getLiveOptionCounts(roomCode, questionIndex, optionsCount = 4) {
-  const counts = new Array(optionsCount).fill(0);
-  if (isPostgres) {
-    const res = await pool.query(
-      `SELECT option_index, COUNT(*) as count FROM answers
-       WHERE room_code = $1 AND question_index = $2
-       GROUP BY option_index`,
-      [roomCode, questionIndex]
-    );
-    for (const r of res.rows) {
-      if (r.option_index >= 0 && r.option_index < optionsCount) {
-        counts[r.option_index] = Number(r.count);
-      }
-    }
-  } else {
-    const rows = sqliteDb.prepare(`
-      SELECT option_index, COUNT(*) as count FROM answers
-      WHERE room_code = ? AND question_index = ?
-      GROUP BY option_index
-    `).all(roomCode, questionIndex);
-    for (const r of rows) {
-      if (r.option_index >= 0 && r.option_index < optionsCount) {
-        counts[r.option_index] = Number(r.count);
-      }
-    }
+export async function getLiveOptionCounts(roomCode, qIndex, count = 4) {
+  const result = new Array(count).fill(0);
+  const rows = await query('SELECT option_index, COUNT(*) as count FROM answers WHERE room_code = ? AND question_index = ? GROUP BY option_index', [roomCode, qIndex]);
+  for (const r of rows) {
+    if (r.option_index >= 0 && r.option_index < count) result[r.option_index] = Number(r.count);
   }
-  return counts;
+  return result;
 }
 
 export async function getQuestionResultsBreakdown(roomCode) {
-  if (isPostgres) {
-    const res = await pool.query(
-      `SELECT question_index,
-              COUNT(*) as total_answers,
-              SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) as correct_answers
-       FROM answers
-       WHERE room_code = $1
-       GROUP BY question_index
-       ORDER BY question_index ASC`,
-      [roomCode]
-    );
-    return res.rows.map((r) => ({
-      questionIndex: Number(r.question_index),
-      total: Number(r.total_answers),
-      correct: Number(r.correct_answers),
-      percent: Number(r.total_answers) > 0 ? Math.round((Number(r.correct_answers) / Number(r.total_answers)) * 100) : 0,
-    }));
-  } else {
-    const rows = sqliteDb.prepare(`
-      SELECT question_index,
-             COUNT(*) as total_answers,
-             SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) as correct_answers
-      FROM answers
-      WHERE room_code = ?
-      GROUP BY question_index
-      ORDER BY question_index ASC
-    `).all(roomCode);
-    return rows.map((r) => ({
-      questionIndex: Number(r.question_index),
-      total: Number(r.total_answers),
-      correct: Number(r.correct_answers),
-      percent: Number(r.total_answers) > 0 ? Math.round((Number(r.correct_answers) / Number(r.total_answers)) * 100) : 0,
-    }));
-  }
+  const rows = await query(
+    `SELECT question_index, COUNT(*) as total, SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) as correct
+     FROM answers WHERE room_code = ? GROUP BY question_index ORDER BY question_index ASC`,
+    [roomCode]
+  );
+  return rows.map((r) => ({
+    questionIndex: Number(r.question_index),
+    total: Number(r.total),
+    correct: Number(r.correct || 0),
+    percent: Number(r.total) > 0 ? Math.round((Number(r.correct || 0) / Number(r.total)) * 100) : 0,
+  }));
 }
 
-export async function awardPointsToCorrectPlayers(roomCode, questionIndex, pointsAwarded) {
-  if (isPostgres) {
-    await pool.query(
-      `UPDATE players SET score = score + $1
-       WHERE id IN (
-         SELECT player_id FROM answers
-         WHERE room_code = $2 AND question_index = $3 AND is_correct = 1
-       )`,
-      [pointsAwarded, roomCode, questionIndex]
-    );
-  } else {
-    const correctRows = sqliteDb.prepare(`
-      SELECT player_id FROM answers
-      WHERE room_code = ? AND question_index = ? AND is_correct = 1
-    `).all(roomCode, questionIndex);
-    for (const row of correctRows) {
-      sqliteDb.prepare('UPDATE players SET score = score + ? WHERE id = ?').run(
-        pointsAwarded,
-        row.player_id
-      );
-    }
-  }
-}
+export const awardPointsToCorrectPlayers = (roomCode, qIndex, points) =>
+  query(
+    `UPDATE players SET score = score + ?
+     WHERE id IN (SELECT player_id FROM answers WHERE room_code = ? AND question_index = ? AND is_correct = 1)`,
+    [points, roomCode, qIndex]
+  );
 
-export async function getLeaderboardFromDb(roomCode) {
-  if (isPostgres) {
-    const res = await pool.query(
-      'SELECT id, name, score FROM players WHERE room_code = $1 ORDER BY score DESC, joined_at ASC',
-      [roomCode]
-    );
-    return res.rows;
-  } else {
-    return sqliteDb.prepare(`
-      SELECT id, name, score FROM players
-      WHERE room_code = ?
-      ORDER BY score DESC, joined_at ASC
-    `).all(roomCode);
-  }
-}
+export const getLeaderboardFromDb = (roomCode) =>
+  query('SELECT id, name, score FROM players WHERE room_code = ? ORDER BY score DESC, joined_at ASC', [roomCode]);
